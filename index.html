@@ -61,6 +61,7 @@ footer{grid-column:1/4;background:var(--p);border-top:1px solid var(--l);display
 <label><span>Ločljivost</span><select id="xres"><option value="1080" selected>1080p · 1920×1080 (privzeto)</option><option value="720">720p · 1280×720</option></select></label>
 <label><span>Kakovost</span><select id="xq"><option value="12">Standardna · 12 Mbps</option><option value="20" selected>Visoka · 20 Mbps</option><option value="35">Najvišja · 35 Mbps</option></select></label>
 <label><span>Način izrisa</span><select id="xmode"><option value="off" selected>Gladek: sličico za sličico (priporočeno)</option><option value="rt">Hiter posnetek v realnem času</option></select></label>
+<label class="chk" style="margin-bottom:6px"><input type="checkbox" id="xmb"><span>Motion blur (zamegljenost gibanja pri hitrih prehodih in gibih)</span></label><p class="hint" style="margin:0 0 14px;font-size:12px">Priporočeno pri 24, 25 in 30 fps. Izris traja dlje. Deluje v gladkem načinu izrisa.</p>
 <div class="row"><button id="xgo" class="pri">Začni izvoz</button><button id="xno">Prekliči</button></div></div></div>
 <audio id="aud" hidden></audio>
 <script>
@@ -465,7 +466,7 @@ function dsc(c,im,s,ang,al){c.save();c.globalAlpha=al;c.translate(W/2,H/2);c.rot
 function flash(c,k){c.save();c.globalAlpha=clamp(k);c.fillStyle='#ffd6a0';c.fillRect(0,0,W,H);c.restore()}
 function trans(c,P,Q,k,p,f){const e=E.io3(p);c.globalAlpha=1;
  if(k=='fade'){c.drawImage(P,0,0);c.globalAlpha=E.ss(p);c.drawImage(Q,0,0);c.globalAlpha=1}
- else if(k=='slideL'||k=='whip'){const n=k=='whip'?6:1;c.drawImage(P,-W*e,0);c.drawImage(Q,W-W*e,0);
+ else if(k=='slideL'||k=='whip'){const n=k=='whip'&&!MBON?6:1;c.drawImage(P,-W*e,0);c.drawImage(Q,W-W*e,0);
   for(let j=1;j<n;j++){const ee=Math.max(0,e-j*.012*Math.sin(Math.PI*p)),a=.2;c.globalAlpha=a;c.drawImage(P,-W*ee,0);c.drawImage(Q,W-W*ee,0)}c.globalAlpha=1}
  else if(k=='slideR'){c.drawImage(P,W*e,0);c.drawImage(Q,-W+W*e,0)}
  else if(k=='slideU'){c.drawImage(P,0,-H*e);c.drawImage(Q,0,H-H*e)}
@@ -571,9 +572,16 @@ $('#exp').onclick=()=>{if(!slides.length)return alert('Najprej dodaj vsaj eno sl
 $('#xno').onclick=()=>$('#dlg').style.display='none';$('#xcancel').onclick=()=>{cancel=true};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms)),MC=new MessageChannel();let mcR=null;MC.port1.onmessage=()=>{const r=mcR;mcR=null;r&&r()};const yld=()=>new Promise(r=>{mcR=r;MC.port2.postMessage(0)});
 $('#xgo').onclick=async()=>{$('#dlg').style.display='none';const fps=+$('#xfps').value,hh=+$('#xres').value,mb=+$('#xq').value;lay();await document.fonts.ready;
- if($('#xmode').value=='off'){if(window.VideoEncoder&&window.Mp4Muxer){try{await exportOff(fps,hh,mb);return}catch(e){exporting=false;$('#bar').style.display='none';render(0);if(e&&e.message=='cancel')return;alert('Gladek izvoz ni uspel ('+(e&&e.message||e)+'). Preklapljam na posnetek v realnem času.')}}else alert('Ta brskalnik nima WebCodecs ali pa knjižnica za MP4 ni naložena (potrebna je internetna povezava). Uporabim posnetek v realnem času.')}
+ if($('#xmode').value=='off'){if(window.VideoEncoder&&window.Mp4Muxer){try{await exportOff(fps,hh,mb,$('#xmb').checked&&!$('#xmb').disabled);return}catch(e){exporting=false;$('#bar').style.display='none';render(0);if(e&&e.message=='cancel')return;alert('Gladek izvoz ni uspel ('+(e&&e.message||e)+'). Preklapljam na posnetek v realnem času.')}}else alert('Ta brskalnik nima WebCodecs ali pa knjižnica za MP4 ni naložena (potrebna je internetna povezava). Uporabim posnetek v realnem času.')}
  exportRT(fps)};
-async function exportOff(fps,hh,mb){const ww=Math.round(hh*16/9/2)*2,N=Math.round(total*fps);cancel=false;
+let MBON=false;const ACC=mk(),AC=ACC.getContext('2d'),TA=mk(64,36),tac=TA.getContext('2d',{willReadFrequently:true});
+function smallPx(){tac.drawImage(cv,0,0,64,36);return tac.getImageData(0,0,64,36).data}
+function renderMB(t,fps){const ex=.5/fps;AC.globalCompositeOperation='source-over';AC.globalAlpha=1;
+ render(t-ex/2);AC.drawImage(cv,0,0);const A=smallPx();render(t+ex/2);AC.globalAlpha=.5;AC.drawImage(cv,0,0);const B=smallPx();
+ let d=0;for(let i=0;i<A.length;i+=4)d+=Math.abs(A[i]-B[i])+Math.abs(A[i+1]-B[i+1])+Math.abs(A[i+2]-B[i+2]);d/=A.length/4*3;
+ const N=d<1.2?2:d<4?5:d<10?10:16;MBON=true;let cnt=2;for(let j=1;j<=N-2;j++){render(t-ex/2+ex*j/(N-1));AC.globalAlpha=1/(cnt+1);AC.drawImage(cv,0,0);cnt++}AC.globalAlpha=1;MBON=false}
+$('#xfps').onchange=()=>{$('#xmb').checked=+$('#xfps').value<=30};$('#xmode').onchange=()=>{$('#xmb').disabled=$('#xmode').value!='off'};
+async function exportOff(fps,hh,mb,mblur){const ww=Math.round(hh*16/9/2)*2,N=Math.round(total*fps);cancel=false;
  const ab=audioFile?await new AudioContext().decodeAudioData(await audioFile.arrayBuffer()):null,sr=ab?ab.sampleRate:0;
  const base={width:ww,height:hh,bitrate:mb*1e6,framerate:fps,avc:{format:'avc'},latencyMode:'quality'};let cfg=null;
  find:for(const codec of[hh>720?'avc1.64002A':'avc1.64001F','avc1.640028','avc1.4D4028','avc1.42E01F'])for(const hw of['prefer-hardware','prefer-software']){const c={...base,codec,hardwareAcceleration:hw},r=await VideoEncoder.isConfigSupported(c).catch(()=>null);if(r&&r.supported){cfg=c;break find}}
@@ -588,7 +596,7 @@ async function exportOff(fps,hh,mb){const ww=Math.round(hh*16/9/2)*2,N=Math.roun
   await ae.flush();ae.close()}
  const o2=hh==1080?null:mk(ww,hh),oc=o2&&o2.getContext('2d'),t0=performance.now();oc&&(oc.imageSmoothingQuality='high');
  for(let f=0;f<N;f++){if(cancel||fail){enc.close();exporting=false;$('#bar').style.display='none';throw new Error(cancel?'cancel':String(fail))}
-  render(f/fps);let src=cv;if(oc){oc.drawImage(cv,0,0,ww,hh);src=o2}
+  let src=cv;if(mblur){renderMB(f/fps,fps);src=ACC}else render(f/fps);if(oc){oc.drawImage(src,0,0,ww,hh);src=o2}
   const vf=new VideoFrame(src,{timestamp:Math.round(f*1e6/fps),duration:Math.round(1e6/fps)});enc.encode(vf,{keyFrame:f%(fps*2)==0});vf.close();
   while(enc.encodeQueueSize>8)await sleep(2);
   if(f%2==0){const el=(performance.now()-t0)/1000,eta=el/(f+1)*(N-f-1);$('#bu').style.width=(100*f/N)+'%';$('#bt').textContent='Izrisujem sličico '+f+' / '+N+' · še ca. '+Math.ceil(eta/60)+' min';await yld()}}
@@ -617,13 +625,16 @@ const idb=()=>new Promise((res,rej)=>{const r=indexedDB.open('ember-studio',1);r
 async function recList(){try{const d=await idb();return await new Promise(res=>{const q=d.transaction('recent').objectStore('recent').getAll();q.onsuccess=()=>res(q.result.sort((a,b)=>b.t-a.t));q.onerror=()=>res([])})}catch(e){return[]}}
 async function recAdd(h){try{const all=await recList(),del=[];for(const e of all){try{if(await e.h.isSameEntry(h))del.push(e.id)}catch(x){}}
  const extra=all.filter(e=>!del.includes(e.id)).slice(4).map(e=>e.id),d=await idb(),tx=d.transaction('recent','readwrite'),st=tx.objectStore('recent');[...del,...extra].forEach(id=>st.delete(id));st.put({h,name:h.name,t:Date.now()});await new Promise(r=>tx.oncomplete=r)}catch(e){}}
+function dlJSON(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(serialize())],{type:'application/json'}));a.download=(pname||'projekt').replace(/\.json$/,'')+'.json';a.click();
+ toast('Brskalnik ne omogoča izbire mape, zato je projekt v mapi Prenosi. Za izbiro mape uporabi Chrome ali Edge (v Bravu vklopi brave://flags/#file-system-access-api) ali v nastavitvah brskalnika vklopi »Vprašaj, kam shraniti vsako datoteko«.')}
 async function saveProj(as){if(!slides.length)return toast('Projekt je prazen.');
- try{toast('Shranjujem …');const json=JSON.stringify(serialize());
-  if(window.showSaveFilePicker){if(as||!curH)curH=await showSaveFilePicker({suggestedName:(pname||'projekt').replace(/\.json$/,'')+'.json',types:FT});
+ try{
+  if(window.showSaveFilePicker){
+   if(as||!curH)curH=await showSaveFilePicker({suggestedName:(pname||'projekt').replace(/\.json$/,'')+'.json',types:FT});
    else if(curH.requestPermission&&await curH.requestPermission({mode:'readwrite'})!=='granted')return toast('Ni dovoljenja za pisanje v datoteko.');
-   const w=await curH.createWritable();await w.write(json);await w.close();pname=curH.name;await recAdd(curH);setPN();toast('Shranjeno: '+pname)}
-  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([json],{type:'application/json'}));a.download=(pname||'projekt').replace(/\.json$/,'')+'.json';a.click();toast('Projekt je prenesen v mapo za prenose (ta brskalnik ne omogoča izbire mape).')}
- }catch(e){if(e&&e.name=='AbortError')return;toast('Shranjevanje ni uspelo: '+(e.message||e))}}
+   toast('Shranjujem …');await new Promise(r=>setTimeout(r,30));const json=JSON.stringify(serialize()),w=await curH.createWritable();await w.write(json);await w.close();pname=curH.name;await recAdd(curH);setPN();toast('Shranjeno: '+pname)}
+  else dlJSON()
+ }catch(e){if(e&&e.name=='AbortError')return;if(e&&(e.name=='SecurityError'||e.name=='NotAllowedError'))return dlJSON();toast('Shranjevanje ni uspelo: '+(e.message||e))}}
 async function loadProj(p){if(!p||p.app!=='ember-studio')throw new Error('To ni projekt Ember Studio.');stopPlay();const ns=[];
  for(const d of p.slides){const o={...d};delete o.data;if(d.data){const b=await(await fetch(d.data)).blob();Object.assign(o,await load(new File([b],d.name||'slika.jpg',{type:b.type||'image/jpeg'})))}ns.push(o)}
  slides=ns;Object.assign(G,p.G);G.T=TP[G.tk]||TP.etna;sel=slides.length?0:-1;tcur=0;lastNow=-1;$('#tpl').value=G.tk;$('#sty').value=G.st;
